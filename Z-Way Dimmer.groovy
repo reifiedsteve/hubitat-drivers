@@ -15,54 +15,47 @@
  *
  * ----------------------------------------------------------------------------------
  *
- * Z-way Dimmer Switch Driver for Hubitat C-7
+ * Z-way Dimmer Driver for Hubitat C-7
  *
- * Calls Z-way REST API to perform switch on/off and dimming.
- * 
+ * Calls Z-way REST API to perform switch on/off and dimming on a class 38 device.
+ *
  * For technical details of Z-Way REST API, see https://zwave.me/z-way
  *
  * Notes: (1) Z-Way seems to require admin privileges (Z-Way 2.2.5) for control.
- *        (2) The device ID can be found via Z-Way Expert UI -> Devices.
- *        (3) Not sure of the purpose of the instance ID (default value of 0 works fine).
- *        (4) Logging is enabled via UI, but auto-disables after a while (to avoid
+ *
+ *        (2) The API URIs can be found using by clicking the device's cog in Zway,
+ *            then scrolling down to "API commands for developers"
+ *
+ *        (3) Logging is enabled via UI, but auto-disables after a while (to avoid
  *            the logs getting accidentally overwhelmed).
  *
- *  Author: S.J.Morley  Date: 2021-01-27  E: steve@reified.co.uk  
+ *        (4) Polling is made more complicated in that it *seems* that z-way may
+ *            itself also be polling internally, which can create weird twitchy
+ *            effects if trying to update the Hubitat slider with the latest
+ *            "actual" value too frequently. Also, hubitat slider tracks your
+ *            finger (of course) so reflects thet *requested* value, so if you
+ *            update its state to the "actual" value, it may be a stale "actual"
+ *            value for a short while. 
+ *
+ * Author: S.J.Morley  Date: 2021-02-12  E: steve@reified.co.uk  W: www.reified.co.uk
  *
  * ----------------------------------------------------------------------------------
  */
+
+import groovy.json.JsonSlurper
 
 /*
  * Define the device driver capabilities. 
  *
  */
 
-/* 
- * The semantics of setLevel is just to dim, not to switch off,
- * whereas sending a level 0 can switch some devices off.
- * So let's just keep the semantics of dimming to dimming alone
- * and not on/off. Hence never send a level 0 for dimming.
- */
-
-static int SLIDERMIN() { return 1 }
-
-/*
- * Hubitat defines 100 as maximum brightness level, whereas
- * Z-way defines 99 as the maximum dimming level.
- */
-
-static int SLIDERMAX() { return 99 }
-
 metadata
 {
-    definition(name: "Z-way Dimmer", namespace: "Reified", author: "Steve Morley")
-    {
+    definition(name: "Z-way Dimmer", namespace: "Reified", author: "Steve Morley") {
         capability "Initialize"
         capability "Light"
         capability "Switch"
         capability "Switch Level"
-        
-        attribute "mappedLevel", "Number"
     }
 }
 
@@ -83,10 +76,8 @@ preferences
     }
 
     section("Device Behaviour") {
-        input name: "userDimmedMin", type: "number",   title: "Min dimming level (${SLIDERMIN()}-${SLIDERMAX()})", range: "${SLIDERMIN()}..${SLIDERMAX()}", defaultValue: SLIDERMIN(), required: true
-        input name: "userDimmedMax", type: "number",   title: "Max dimming level (${SLIDERMIN()}-${SLIDERMAX()})", range: "${SLIDERMIN()}..${SLIDERMAX()}", defaultValue: SLIDERMAX(), required: true
-        input name: "changingLevelTurnsOn",  type: "bool",   title: "Does changing level switch light on?", defaultValue: true, required: true
-        input name: "refreshInterval", type: "number", title: "Refresh interval (seconds)", defaultValue: 10, required: true
+        input name: "immediateFeedback", type: "bool", title: "Immediate feedback", defaultValue: true
+        input name: "refreshInterval", type: "number", title: "Actual state polling (seconds, 0=none)", defaultValue: 5, required: true
     }
     
     section("Diagnostics") {
@@ -97,7 +88,7 @@ preferences
 /*
  * zWaySendCommand(username, password, ipAddr, ipPort, commandPath)
  *
- * Send a Z-Way specific HHTP GET to a Z-Way device.
+ * Send a Z-Way specific HTTP GET to a Z-Way device.
  *      username -  username for BasicAuth login (optional)
  *      password -  password for basicAuth login (optional)
  *        ipAddr -  IP address of the Z-Way device
@@ -124,15 +115,39 @@ Object zwaySendCommand(username, password, ipAddr, ipPort, commandPath)
         log.debug "${device.label?device.label:device.name}: Zway - " + host + " GET path " + commandPath;
     }
     
-    synchronized(this) { // In case we say request attributes on a schedule.
-        httpGet(  
-            uri: "http://" + host,
-            path: commandPath,
-            headers: headerItems
-        ) { resp -> response = resp; }       
+    URI fullUri = new URI("http://" + host + commandPath);
+    
+    httpGet(  
+        uri: fullUri,
+        headers: headerItems
+    ) { resp -> response = resp; }       
+   
+    
+    if (!response.success) {
+        throw new Exception("Unsuccessful response to HTTP GET of ${commandPath}");
+    }
+    
+    if (logEnable) {
+        log.debug "${device.label?device.label:device.name}: response data: ${response.data}";
     }
     
     return response;
+}
+
+/*
+ * zWaySendCommand(username, password, ipAddr, ipPort, commandPath)
+ *
+ * Send a Z-Way specific HTTP GET to the current Z-Way device.
+ *   commandPath -  Device-specific path-part representing the command.
+ *
+ */
+
+Object zwaySendCommand(commandPath) {
+    return zwaySendCommand(
+        settings.username, settings.password,
+        settings.ipAddr, settings.ipPort,
+        commandPath
+    );
 }
 
 /*
@@ -144,22 +159,8 @@ Object zwaySendCommand(username, password, ipAddr, ipPort, commandPath)
  *
  */
 
-Object zwayRead(commandPath)
-{ 
-    def response = zwaySendCommand(
-        settings.username, settings.password, 
-        settings.ipAddr, settings.ipPort, 
-        commandPath
-    );
-    
-    if (!response.success) {
-        throw new Exception("${device.label?device.label:device.name}: unsuccessful response to zwayRead from ${commandPath}");
-    }
-    
-    if (logEnable) {
-        log.debug "${device.label?device.label:device.name}: response data: ${response.data}";
-    }
-    
+Object zwayRead(commandPath) { 
+    def response = zwaySendCommand(commandPath);
     return response.data;
 }
 
@@ -172,37 +173,92 @@ Object zwayRead(commandPath)
  *
  */
 
-def void zwayWrite(commandPath)
-{     
-    def response = zwaySendCommand(
-        settings.username, settings.password, 
-        settings.ipAddr, settings.ipPort, 
-        commandPath
-    );
-    
-    if (!response.success) {
-        throw new Exception("${device.label?device.label:device.name}: unsuccessful response to zwayWrite from ${commandPath}");
-    }
+def void zwayWrite(commandPath) {     
+    zwaySendCommand(commandPath);
 }
 
 /*
- * zwayReadAttribute(attributeName)
+ * formDevicePathBase(deviceID, instanceID, classID)
  *
- * Send a Z-Way specific command to read an attribute of the device.
- *   attributeName -  The name of the attribute.
- * Returns: The value of the requested attribute.
+ * Form the path base for the given deviceID/instanceID/classID.
+ *   deviceID - the deviceID as shown in z-way
+ *   instanceID - the device instance ID (usually zero) as shown in z-way.
+ *   classID - the zwave class of device.
+ * Returns: The path to the device.
  *
  */
 
-def Object zwayReadAttribute(attributeName)
+def String zwayFormDevicePathBase(deviceID, instanceID, classID) {
+    return "/ZAutomation/api/v1/devices/ZWayVDev_zway_${deviceID}-${instanceID}-${classID}";
+}
+
+/*
+ * zwayReadDeviceState()
+ *
+ * Send a Z-Way specific command to read an attribute of the device.
+ * Returns: The JSON string representing the device's state.
+ *
+ */
+
+def Object zwayReadDeviceState()
 {
-    String commandPath = "/ZWaveAPI/Run/devices[${settings.deviceID}].instances[${settings.instanceID}].Basic.data.${attributeName}.value";
-    // Synonymous to: "/ZWaveAPI/Run/devices[${settings.deviceID}].instances[${settings.instanceID}].commandClasses[38].data.${attributeName}.value"
+    def zwayCommandClass = 38; // zway class MultilevelSwitch
+    String commandPath = zwayFormDevicePathBase(settings.deviceID, settings.instanceID, zwayCommandClass);
+    
+    log.debug "${device.label?device.label:device.name}: reading state for device ${settings.deviceID} instance ${settings.instanceID}.";
 
-    log.debug "${device.label?device.label:device.name}: reading attribute '${attributeName}' from device ${settings.deviceID} instance ${settings.instanceID}.";
-    Object obj = zwayRead(commandPath);
+    Object responseDataJson = zwayRead(commandPath);
+    
+    return responseDataJson;
+}
 
-    return obj;
+/*
+ * int zwayGetLevel()
+ *
+ * Reads the device's dimming level. 
+ * For a dimmer this will be 1..100 if on, or 0 for off.
+ * For a switch this will 255 if on, or 0 for off.
+ */
+
+def Integer zwayGetLevel() {    
+    Object json = zwayReadDeviceState();
+    return json.data.metrics.level;
+}
+
+/*
+ * zwaySetLevel(level)
+ * Writes the devices dimming level.
+ * (0 means off, 255 means on, 1..100 mean specific dimming level (if a dimmer)
+ */
+
+def zwaySetLevel(level) {
+    def zwayCommandClass = 38; // ...means a dimmer (MultilevelSwitch)
+    String commandPath = zwayFormDevicePathBase(settings.deviceID, settings.instanceID, zwayCommandClass);
+    commandPath += "/command/exact?level=${level}";
+    zwayWrite(commandPath);
+}
+
+/*
+ * zwaySetOnOff(on)
+ * Sets the device to either on or off.
+ */
+
+def zwaySetOnOff(on) {
+    String command = on ? "on" : "off";
+    def zwayCommandClass = 38; // ...means a dimmer (MultilevelSwitch)
+    String commandPath = zwayFormDevicePathBase(settings.deviceID, settings.instanceID, zwayCommandClass);
+    commandPath += "/command/${command}";
+    zwayWrite(commandPath);        
+}
+
+/*
+ * zwayGetOnOff(on)
+ * Gets the device on/off state.
+ * Returns true if on, otherwise false.
+ */
+def zwayGetOnOff() {
+    Object json = zwayReadDeviceState();
+    return json.data.metrics.level > 0;
 }
 
 /*
@@ -211,22 +267,26 @@ def Object zwayReadAttribute(attributeName)
  * Framework event: respond to an ON request.
  */
 
-def on()
-{ 
-    String commandPath = "/ZWaveAPI/Run/devices[${settings.deviceID}].instances[${settings.instanceID}].Basic.Set(${255})";
-    
+def on() { 
+    log.debug "### ${device.label?device.label:device.name}: REQUEST FOR ON.";
+    doOn();
+}
+
+/*
+ * doOn()
+ *
+ * Tell zwave about the off request.
+ */
+
+def doOn() { 
     try {
-        zwayWrite(commandPath);
-        // Do an immediate notification: refresh will overwrite if it didn't take.
-        // (Speed of response versus (unlikely) failure to write trade-off). 
-        // (Actually, not yet figured out how to read actual on/off state from device,
-        // so this is endEvent is essential.)
-        sendEvent(name: "switch", value: "on", isStateChange: true);
-    }
-    
-    catch (Exception e) {
+        zwaySetOnOff(true);
+        if (settings.immediateFeedback) {
+            sendEvent(name: "switch", value: "on", isStateChange: true);
+        }
+    } catch (Exception e) {
         log.warn "${device.label?device.label:device.name}: failed to switch on: ${e.message})";
-    }   
+    }
 }
 
 /*
@@ -235,186 +295,103 @@ def on()
  * Framework event: respond to an OFF request.
  */
 
-def off()
-{
-    String commandPath = "/ZWaveAPI/Run/devices[${deviceID}].instances[${instanceID}].Basic.Set(${0})";
+def off() {
+    log.debug "### ${device.label?device.label:device.name}: REQUEST FOR OFF.";
+    doOff();
+}
 
+/*
+ * doOff()
+ *
+ * Tell zwave about the off request.
+ */
+
+def doOff() {
     try {
-        zwayWrite(commandPath);
-        // Do an immediate notification: refresh will overwrite if it didn't take.
-        // (Speed of response versus (unlikely) failure to write trade-off). 
-        // (Actually, not yet figured out how to read actual on/off state from device,
-        // so this is endEvent is essential.)
-        sendEvent(name: "switch", value: "off", isStateChange: true);
-    }
-    
-    catch (Exception e) {
+        zwaySetOnOff(false);
+        if (settings.immediateFeedback) {
+            sendEvent(name: "switch", value: "off", isStateChange: true);
+        }
+    } catch (Exception e) {
         log.warn "${device.label?device.label:device.name}: failed to switch off: ${e.message})";
-    }   
-}
-
-/*
- * performUserDimmingRangeChecks()
- *
- * Validate anbd sanitize user-specified dimming range.
- *
- */
-
-def performUserDimmingRangeChecks()
-{    
-    userMin = settings.userDimmedMin;
-    userMax = settings.userDimmedMax;
- 
-    log.debug "${device.label?device.label:device.name}: retrieved user range of ${userMin} to ${userMax}"
-
-    int srcMin = SLIDERMIN();    
-    int srcMax = SLIDERMAX();
-
-    // Be tolerant of range limits being defined in the wrong order.
-    
-    if (userMax < userMin) {
-        int tmp = userMin;
-        userMin = userMax;
-        userMax = tmp;
     }
-    
-    // Ensure the user settings do not exceed the possible range
-    // of values, by restricting them accordingly, nudging them
-    // back into range.
-    
-    if (userMin < srcMin) userMin = srcMin;
-    if (userMax > srcMax) userMax = srcMax;
-       
-    // Ignore a non-sensible range and default to full possible span.
-    
-    int userSpan = userMax - userMin;
-
-    if ((userSpan) < 1) {
-        log.warn "${device.label?device.label:device.name}: invalid user dimming range ${settings.userDimmedMin}-${settings.userDimmedMax} in device configuration, so defaulting to full range."
-        userMin = srcMin;
-        userMax = srcMax;
-    }
-
-    log.debug "${device.label?device.label:device.name}: normalised user range of ${userMin} to ${userMax}"
-
-    device.updateSetting("userDimmedMin", [value: userMin, type: "number"]);
-    device.updateSetting("userDimmedMax", [value: userMax, type: "number"]);    
-}
-
-/*
- * userToInternalLevel(selectedLevel)
- *
- * Map a position on a dimming control to a user-defined dimming level.
- *   selectedLevel -  percentage dimmed (0-100).
- * Returns: the mapped dimming level.
- *
- */
-
-def Integer userToInternalLevel(selectedLevel)
-{
-    int userValue = selectedLevel;
-    
-    int srcMin = SLIDERMIN();    
-    int srcMax = SLIDERMAX();
-
-    userMin = settings.userDimmedMin;
-    userMax = settings.userDimmedMax;
-
-    // Now do the actual remapping of the value into the user's
-    // defined range.
-    
-    int srcSpan = srcMax - srcMin  + 1;
-    int userSpan = userMax - userMin;
-
-    int finalLevel = (userMin + (((selectedLevel - srcMin + 1) * (double)1.0 * userSpan / srcSpan)));
-    
-    return finalLevel;
 }
 
 /*
  * setLevel(selectedLevel)
  *
- * Framework event: request to set a specific dimming level.
+ * Tell zwave about the newly requested level.
  *   selectedLevel -  percentage dimmed (0-100).
  *
  */
 
-def setLevel(selectedLevel)
-{
-    remappedLevel = userToInternalLevel(selectedLevel);
-    log.debug "${device.label?device.label:device.name}: level ${selectedLevel} mapped to within user range as ${remappedLevel}.";
-        
-    String commandPath = "/ZWaveAPI/Run/devices[${settings.deviceID}].instances[${settings.instanceID}].Basic.Set(${remappedLevel})";
-    
-    try
-    {
-        zwayWrite(commandPath);
+def setLevel(level) {
+    log.debug "### ${device.label?device.label:device.name}: REQUEST TO SET LEVEL ${level}."
+    doSetLevel(level);
+}
 
-        // Do an immediate notification: refresh will overwrite if it didn't take.
-        // (Speed-of-response versus (unlikely?) failure-to-write trade-off). 
-        
-        sendEvent(name: "level", value: selectedLevel, unit:"%", isStateChange: true);
-        sendEvent(name: "mappedLevel", value: remappedLalue, unit:"%", isStateChange: true);
+/*
+ * setLevel(level)
+ *
+ * Framework event: request to set a specific dimming level.
+ *   level -  percentage dimmed (0-100).
+ *
+ */
 
-        // Setting to any dimming level (other than 0) might (or might not) auto turn on the
-        // lights, depending on the device behaviour (as defined/configured on the device). 
-        // This all needs to be reflected in Hubitat's internal state - hence sending events
-        // where necessary. We rely on the user setting the flag appropriately to reflect
-        // the actual device behaviour.
-                        
-        if (settings.changingLevelTurnsOn) {
-            sendEvent(name: "switch", value: "on", isStateChange: true);
+def doSetLevel(level) {
+    try {
+        zwaySetLevel(level);
+        if (settings.immediateFeedback) {
+            sendEvent(name: "switch", value: isOn(level) ? "on" : "off", isStateChange: true);
+            rescheduleStateRefresh(); // to avoid any imminent (stale) update to the UI.
         }
+    } catch (Exception e) {
+        log.warn "${device.label?device.label:device.name}: failed to set dimming level to ${level}: ${e.message})";
     }
-    
-    catch (Exception e) {
-        log.warn "${device.label?device.label:device.name}: failed to set dimming level: ${e.message})";
-    }   
 }
 
 /*
- * isOn()
+ * isOn(level)
  *
- * Determine if the device is on.
- * Returns: true if on, flse if off.
+ * Determine if the given level means on.
+ * Returns: true if on, false if off.
  *
  */
 
-def boolean isOn()
+def isOn(level) {
+    return level > 0;   
+}
+
+/*
+ * writeState(attributeName value, hasChange)
+ * 
+ */
+
+def writeState(attributeName, value, hasChanged) {
+    sendEvent(name: attributeName, value: value.toString(), isStateChange: hasChanged);
+}
+
+/*
+ * showStaticAttributes()
+ *
+ * Retrieve some unchanging attributes from the device and show them. 
+ *
+ */
+
+def showStaticAttributes()
 {
-    // Not sure how to do this. The level value seems to be the 
-    // only exposed device variable, but that is independent
-    // from on/off (as level is preserved on the device 
-    // between on-off-on cycles). 
-    // (Q. Do all MultiLevelSwitches act this way? Or at
-    // least are expressed that way via zway?).
+    // Retrieve non-changing attributes here.
+    // These are potentially useful, showing aspects of the dimmer,
+    // so let's retrieve them and show them on the device config page.
+
+    // Object json = zwaySendCommand("/ZWaveAPI/Data/*");
+                                  
+    // log.debug "Initialisation: retrieved attributes ${json}";
     
-    throw new Exception("${device.label?device.label:device.name}: not implemented: isOn()");
-}
-
-/*
- * refreshAttribute(attributeName)
- *
- * Retrieves the latest value of an attribute and send it as an event. The result is
- * that it is shown on the device's configuration page.
- *   attributeName -  The name of the attribute.
- *
- */
-
-def refreshAttribute(attributeName) {
-    sendEvent(name: attributeName, value: zwayReadAttribute(attributeName).toString(), isStateChange: true);
-}
-
-/*
- * readLevel()
- *
- * Retrieves the dimmers dimming level. 
- * Returns: the (unmapped) dimming level.
- *
- */
-
-def Integer readLevel() {
-     return zwayReadAttribute("level").asInteger();      
+    // writeState("zwayDeviceType", json.data.deviceType, true);
+    
+    // writeState("zwaveVersion",  state.data., true);
+    // writeState("zwaveSecurity", zwayReadAttribute("security"), true);
 }
 
 /*
@@ -425,12 +402,95 @@ def Integer readLevel() {
  */
 
 def initialize() {
-    // To ensure that initial values are valid.
-    performUserDimmingRangeChecks();
-    // Retrieve non-changing attributes here.
-    // These are potentially useful, showing aspects of the dimmer.
-    refreshAttribute("version");
-    refreshAttribute("security");
+    scheduleStateRefresh();
+    showStaticAttributes();
+}
+
+/* 
+ *
+ */
+
+def refreshStateLevel(level) {
+    log.debug "Refreshing state level as ${level}"
+    sendEvent(name: "level", value: level, unit:"%", isStateChange: true);
+    sendEvent(name: "switch", value: isOn(level) ? "on" : "off", isStateChange: true);
+}
+
+/* 
+ *
+ */
+
+def scheduleStateRefresh() {
+    if (settings.refreshInterval > 0) {
+        runIn(settings.refreshInterval, doStateRefresh);
+    }
+}
+
+/*
+ *
+ */
+
+def unscheduleStateRefresh() {
+    try {
+        unschedule(doStateRefresh);
+    } catch (Exception ex) {
+        log.warn "${device.label?device.label:device.name}: on trying to unschedule state refresh: ${ex.message}"    
+    }
+}
+
+/* 
+ *
+ */
+
+def rescheduleStateRefresh() {
+    unscheduleStateRefresh();
+    scheduleStateRefresh();    
+}
+
+/* 
+ *
+ */
+
+def stateRefreshLevel()
+{
+    // We only update our own state from what zway tell us. We never do so 
+    // at the point of user interaction as that request might fail. We 
+    // of course want our own state (and UI) to reflect the reality.
+
+    synchronized(this)
+    {
+        try {
+            level = zwayGetLevel();
+            log.debug "State refresh: read level of ${level}";
+            refreshStateLevel(level);
+        } catch (Exception e) {
+            log.warn "${device.label?device.label:device.name}: failed to read level/state: ${e.message})";
+        }
+    }
+}
+
+/* 
+ *
+ */
+
+def doStateRefresh()
+{
+    unscheduleStateRefresh(); // Avoid overlaps.
+
+    stateRefreshLevel();
+    
+    if (settings.refreshInterval > 0) {
+        scheduleStateRefresh(); // the next one.
+    }
+    
+    // TEMPORARY
+    /*
+    try {
+        showStaticAttributes();
+    } catch (Exception e2) {
+        log.warn "${device.label?device.label:device.name}: failed to read state attribute(s): ${e2.message})";
+    }
+    */
 }
 
 /*
@@ -440,23 +500,45 @@ def initialize() {
  *
  */
 
-def scheduleAutoLogOff()
-{
+def scheduleAutoLogOff() {
+    runIn(1800, doAutoLogOff);
+}
+
+/*
+ * scheduleAutoLogOff()
+ *
+ * Schedule auto off of logging. 
+ *
+ */
+
+def unscheduleAutoLogOff() {
     try {
-        unschedule(logsOff);
+        unschedule(doAutoLogOff);
     } catch (Exception ex) {
         log.warn "${device.label?device.label:device.name}: on trying to unschedule auto logging off: ${ex.message}"    
     }
+}
+
+/*
+ * doAutoLogOff()
+ *
+ * Schedule auto off of logging. 
+ *
+ */
+
+def doAutoLogOff()
+{
+    unscheduleAutoLogOff();
     
     // This is called when the config preferences are updated by the user.
 
     log.info "Configuration read."
-    log.warn "${device.label?device.label:device.name}: debug logging is: ${logEnable == true}";
+    log.warn "${device.label?device.label:device.name}: debug logging is: ${settings.logEnable == true}";
     
     // If logging has been enabled, schedule to turn it off in 30 mins. 
     // Stops logs getting full.
     
-    if (logEnable) runIn(1800, logsOff);
+    if (settings.logEnable) scheduleAutoLogOff();
 }
 
 /*
@@ -468,8 +550,9 @@ def scheduleAutoLogOff()
 
 def updated() {
     log.debug "${device.label?device.label:device.name}: update...";
-    scheduleAutoLogOff();   
-    performUserDimmingRangeChecks();
+    unschedule();
+    scheduleStateRefresh();
+    scheduleAutoLogOff();
 }
 
 /*
