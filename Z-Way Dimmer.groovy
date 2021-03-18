@@ -86,6 +86,8 @@ preferences
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * zWaySendCommand(username, password, ipAddr, ipPort, commandPath)
  *
  * Send a Z-Way specific HTTP GET to a Z-Way device.
@@ -95,6 +97,7 @@ preferences
  *        ipPort -  Port no. for the Z-way device
  *   commandPath -  Device-specific path-part representing the command.
  *
+ * ----------------------------------------------------------------------------------
  */
 
 Object zwaySendCommand(username, password, ipAddr, ipPort, commandPath)
@@ -135,11 +138,14 @@ Object zwaySendCommand(username, password, ipAddr, ipPort, commandPath)
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * zWaySendCommand(username, password, ipAddr, ipPort, commandPath)
  *
  * Send a Z-Way specific HTTP GET to the current Z-Way device.
  *   commandPath -  Device-specific path-part representing the command.
  *
+ * ----------------------------------------------------------------------------------
  */
 
 Object zwaySendCommand(commandPath) {
@@ -151,12 +157,15 @@ Object zwaySendCommand(commandPath) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * zWayRead(commandPath)
  *
  * Send a Z-Way specific command to return some data.
  *   commandPath -  Device-specific path-part representing the item to return.
  * Returns: Json object for the requested data.
  *
+ * ----------------------------------------------------------------------------------
  */
 
 Object zwayRead(commandPath) { 
@@ -165,12 +174,15 @@ Object zwayRead(commandPath) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * zWayWrite(commandPath)
  *
  * Send a Z-Way specific command to write some data.
  *   commandPath -  Device-specific path-part representing the item write command.
  * Returns: Json object for the requested data.
  *
+ * ----------------------------------------------------------------------------------
  */
 
 def void zwayWrite(commandPath) {     
@@ -178,6 +190,8 @@ def void zwayWrite(commandPath) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * formDevicePathBase(deviceID, instanceID, classID)
  *
  * Form the path base for the given deviceID/instanceID/classID.
@@ -186,6 +200,7 @@ def void zwayWrite(commandPath) {
  *   classID - the zwave class of device.
  * Returns: The path to the device.
  *
+ * ----------------------------------------------------------------------------------
  */
 
 def String zwayFormDevicePathBase(deviceID, instanceID, classID) {
@@ -193,11 +208,14 @@ def String zwayFormDevicePathBase(deviceID, instanceID, classID) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * zwayReadDeviceState()
  *
  * Send a Z-Way specific command to read an attribute of the device.
  * Returns: The JSON string representing the device's state.
  *
+ * ----------------------------------------------------------------------------------
  */
 
 def Object zwayReadDeviceState()
@@ -213,11 +231,15 @@ def Object zwayReadDeviceState()
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * int zwayGetLevel()
  *
  * Reads the device's dimming level. 
  * For a dimmer this will be 1..100 if on, or 0 for off.
  * For a switch this will 255 if on, or 0 for off.
+ *
+ * ----------------------------------------------------------------------------------
  */
 
 def Integer zwayGetLevel() {    
@@ -226,9 +248,13 @@ def Integer zwayGetLevel() {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * zwaySetLevel(level)
  * Writes the devices dimming level.
  * (0 means off, 255 means on, 1..100 mean specific dimming level (if a dimmer)
+ *
+ * ----------------------------------------------------------------------------------
  */
 
 def zwaySetLevel(level) {
@@ -239,8 +265,12 @@ def zwaySetLevel(level) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * zwaySetOnOff(on)
  * Sets the device to either on or off.
+ *
+ * ----------------------------------------------------------------------------------
  */
 
 def zwaySetOnOff(on) {
@@ -252,19 +282,28 @@ def zwaySetOnOff(on) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * zwayGetOnOff(on)
  * Gets the device on/off state.
  * Returns true if on, otherwise false.
+ *
+ * ----------------------------------------------------------------------------------
  */
+
 def zwayGetOnOff() {
     Object json = zwayReadDeviceState();
     return json.data.metrics.level > 0;
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * on()
  *
  * Framework event: respond to an ON request.
+ *
+ * ----------------------------------------------------------------------------------
  */
 
 def on() { 
@@ -273,9 +312,13 @@ def on() {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * doOn()
  *
  * Tell zwave about the off request.
+ *
+ * ----------------------------------------------------------------------------------
  */
 
 def doOn() { 
@@ -290,9 +333,13 @@ def doOn() {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * off()
  *
  * Framework event: respond to an OFF request.
+ *
+ * ----------------------------------------------------------------------------------
  */
 
 def off() {
@@ -301,9 +348,13 @@ def off() {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * doOff()
  *
  * Tell zwave about the off request.
+ *
+ * ----------------------------------------------------------------------------------
  */
 
 def doOff() {
@@ -318,11 +369,14 @@ def doOff() {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * setLevel(selectedLevel)
  *
  * Tell zwave about the newly requested level.
  *   selectedLevel -  percentage dimmed (0-100).
  *
+ * ----------------------------------------------------------------------------------
  */
 
 def setLevel(level) {
@@ -331,11 +385,14 @@ def setLevel(level) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * setLevel(level)
  *
  * Framework event: request to set a specific dimming level.
  *   level -  percentage dimmed (0-100).
  *
+ * ----------------------------------------------------------------------------------
  */
 
 def doSetLevel(level) {
@@ -351,11 +408,14 @@ def doSetLevel(level) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * isOn(level)
  *
  * Determine if the given level means on.
  * Returns: true if on, false if off.
  *
+ * ----------------------------------------------------------------------------------
  */
 
 def isOn(level) {
@@ -363,8 +423,11 @@ def isOn(level) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * writeState(attributeName value, hasChange)
- * 
+ *
+ * ----------------------------------------------------------------------------------
  */
 
 def writeState(attributeName, value, hasChanged) {
@@ -372,10 +435,13 @@ def writeState(attributeName, value, hasChanged) {
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * showStaticAttributes()
  *
  * Retrieve some unchanging attributes from the device and show them. 
  *
+ * ----------------------------------------------------------------------------------
  */
 
 def showStaticAttributes()
@@ -395,10 +461,13 @@ def showStaticAttributes()
 }
 
 /*
+ * ----------------------------------------------------------------------------------
+ *
  * initialize()
  *
  * Framework event: request to initialize the dimmer. 
  *
+ * ----------------------------------------------------------------------------------
  */
 
 def initialize() {
