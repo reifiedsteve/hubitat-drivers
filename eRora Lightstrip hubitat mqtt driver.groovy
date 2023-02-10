@@ -48,9 +48,9 @@ preferences
     section()
     {
         input (
-            name: "brokerURL", 
+            name: "brokerAddress", 
             type: "text", 
-            title: "MQTT Broker URL", 
+            title: "MQTT Broker Domain/IP", 
             defaultValue: "mqtt.local", 
             required: true
         )
@@ -288,7 +288,7 @@ def onError(message) {
 
 def connectToBroker()
 {   
-    hostStr = settings.brokerURL + ":" + brokerPort.toString()
+    hostStr = settings.brokerAddress + ":" + brokerPort.toString()
     urlStr = settings.brokerProtocol + "://" + hostStr
 
     // If the previous connection has not yet been fully teared down at the broker, 
