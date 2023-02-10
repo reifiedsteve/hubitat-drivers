@@ -187,7 +187,7 @@ def updated()
     logDebug("Updated...")
     logWarn("Debug logging is: ${settings.logEnable == true}")
     
-    ////// if (settings.logEnable) runIn(1800, logsOff)
+    if (settings.logEnable) runIn(1800, logsOff)
 }
 
 /***********************************************************************************
