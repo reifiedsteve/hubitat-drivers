@@ -548,7 +548,7 @@ def constructTopic(prefix, subTopic)
 def on() {
     logDebug("Performing on().")
     sendEvent(name: "switch", value: "on", descriptionText: "${device.displayName} is on")
-    publishSetOnOff(true)
+    deviceSetOnOff(true)
 }
 
 /***********************************************************************************
@@ -560,7 +560,7 @@ def on() {
 def off() {
     logDebug("Performing off().")
     sendEvent(name: "switch", value: "off", descriptionText: "${device.displayName} is off")
-    publishSetOnOff(false)
+    deviceSetOnOff(false)
 }
 
 /***********************************************************************************
@@ -571,19 +571,7 @@ def off() {
 
 def setLevel(level) {
     logDebug("Performing setLevel(${level}) - passing to publishSetBrightness(${level})).")
-    publishSetBrightness(level)    
-}
-
-/***********************************************************************************
- *
- * setColor(colorMap)
- *
- ***********************************************************************************/
-
-def setColor(hslTuple) {
-    logDebug("Performing setColor(${hslTuple}).")
-    rgbTuple = hubitatHsvToRGB(hslTuple)
-    publishSetRGBColor(rgbTuple)
+    deviceSetBrightness(level)    
 }
 
 /***********************************************************************************
@@ -595,7 +583,19 @@ def setColor(hslTuple) {
 def setColorTemperature(kelvin)
 {
     logDebug("Performing setColorTemperature(${kelvin}).")
-    publishSetWhite(kelvin);    
+    deviceSetWhite(kelvin);    
+}
+
+/***********************************************************************************
+ *
+ * setColor(colorMap)
+ *
+ ***********************************************************************************/
+
+def setColor(hslTuple) {
+    logDebug("Performing setColor(${hslTuple}).")
+    rgbTuple = hubitatHsvToRGB(hslTuple)
+    deviceSetRGBColor(rgbTuple)
 }
 
 /***********************************************************************************
@@ -651,202 +651,68 @@ def setNextEffect() {
 
 /***********************************************************************************
  *
- * publishSetOnOff(on)
+ * deviceSetOnOff(on)
  *
  ***********************************************************************************/
 
-def publishSetOnOff(on)
-{
-    // Only perform the publishing if the user has provided us with an
-    // MQTT topic as a destination to which we can publish.
-    
-    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
-
-    if (publishRequired)
-    {
-        topic = constructTopic(settings.brokerTopicPrefix, "power/set")
-        payload = renderPowerPayload(on)
-        
-        // Note: we do *not* want the message to be retained by the broker. This is
-        // a command and has to be enacted when requested - we don't want it to be
-        // unexpectedly honoured hours later if the blind has been turned off.
-        
-        // We don't mind duplicate messages. Sending a set position message twice is 
-        // fine as any subsequent to the first are merely redundant and without
-        // harmful consequence. So let's not demand more of MQTT than we need and
-        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
-
-        tryPublish(topic, payload, qos=1, retain = false)
-    }
+def deviceSetOnOff(on) {
+    payload = renderPowerPayload(on)
+    sendCommandToDevice("power", payload)
 }
 
 /***********************************************************************************
  *
- * publishSetBrightness(position)
+ * deviceSetBrightness(position)
  *
  ***********************************************************************************/
 
-def publishSetBrightness(brightness)
-{
-    // Only perform the publishing if the user has provided us with an
-    // MQTT topic as a destination to which we can publish.
-    
-    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
-
-    if (publishRequired)
-    {
-        topic = constructTopic(settings.brokerTopicPrefix, "brightness/set")
-        payload = renderBrightnessPayload(brightness)
-        
-        // Note: we do *not* want the message to be retained by the broker. This is
-        // a command and has to be enacted when requested - we don't want it to be
-        // unexpectedly honoured hours later if the blind has been turned off.
-        
-        // We don't mind duplicate messages. Sending a set position message twice is 
-        // fine as any subsequent to the first are merely redundant and without
-        // harmful consequence. So let's not demand more of MQTT than we need and
-        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
-        
-        tryPublish(topic, payload, qos=1, retain=false)
-    }
-    
-    return publishRequired
+def deviceSetBrightness(brightness) {
+    payload = renderBrightnessPayload(brightness)
+    sendCommandToDevice("brightness", payload)
 }
 
 /***********************************************************************************
  *
- * publishSetRGBColor(position)
+ * deviceetWhite(kelvin)
  *
  ***********************************************************************************/
 
-def publishSetRGBColor(rgbTuple)
-{
-    // Only perform the publishing if the user has provided us with an
-    // MQTT topic as a destination to which we can publish.
-    
-    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
-
-    if (publishRequired)
-    {
-        topic = constructTopic(settings.brokerTopicPrefix, "rgb/set")  
-        payload = renderRGBPayload(rgbTuple)
-        
-        logDebug("Publishing (${payload}).")
-        
-        // Note: we do *not* want the message to be retained by the broker. This is
-        // a command and has to be enacted when requested - we don't want it to be
-        // unexpectedly honoured hours later if the blind has been turned off.
-        
-        // We don't mind duplicate messages. Sending a set position message twice is 
-        // fine as any subsequent to the first are merely redundant and without
-        // harmful consequence. So let's not demand more of MQTT than we need and
-        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
-        
-        tryPublish(topic, payload, qos=1, retain=false)
-    }
-    
-    return publishRequired
+def deviceSetWhite(kelvin) {
+    payload = renderWhitePayload(kelvin)
+    sendCommandToDevice("white", payload)
 }
 
 /***********************************************************************************
  *
- * publishSetWhite(kelvin)
+ * deviceSetRGBColor(position)
  *
  ***********************************************************************************/
 
-def publishSetWhite(kelvin)
-{
-    // Only perform the publishing if the user has provided us with an
-    // MQTT topic as a destination to which we can publish.
-    
-    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
-
-    if (publishRequired)
-    {
-        topic = constructTopic(settings.brokerTopicPrefix, "white/set")   
-        payload = renderWhitePayload(kelvin)
-        
-        logDebug("Publishing (${payload}).")
-        
-        // Note: we do *not* want the message to be retained by the broker. This is
-        // a command and has to be enacted when requested - we don't want it to be
-        // unexpectedly honoured hours later if the blind has been turned off.
-        
-        // We don't mind duplicate messages. Sending a set position message twice is 
-        // fine as any subsequent to the first are merely redundant and without
-        // harmful consequence. So let's not demand more of MQTT than we need and
-        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
-        
-        tryPublish(topic, payload, qos=1, retain=false)
-    }
-    
-    return publishRequired
+def deviceSetRGBColor(rgbTuple) {
+    payload = renderRGBPayload(rgbTuple)
+    sendCommandToDevice("rgb", payload)
 }
 
 /***********************************************************************************
  *
- * publishSetHSLColor(position)
+ * deviceSetHSLColor(position)
  *
  ***********************************************************************************/
 
-def publishSetHSLColor(hslTuple)
-{
-    // Only perform the publishing if the user has provided us with an
-    // MQTT topic as a destination to which we can publish.
-    
-    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
-
-    if (publishRequired)
-    {
-        topic = constructTopic(settings.brokerTopicPrefix, "hsl/set")   /* does this need to be hsv? I think so! */
-        payload = renderHSLPayload(hslTuple)
-        
-        logDebug("Publishing (${payload}).")
-        
-        // Note: we do *not* want the message to be retained by the broker. This is
-        // a command and has to be enacted when requested - we don't want it to be
-        // unexpectedly honoured hours later if the blind has been turned off.
-        
-        // We don't mind duplicate messages. Sending a set position message twice is 
-        // fine as any subsequent to the first are merely redundant and without
-        // harmful consequence. So let's not demand more of MQTT than we need and
-        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
-        
-        tryPublish(topic, payload, qos=1, retain=false)
-    }
-    
-    return publishRequired
+def deviceSetHSLColor(hslTuple) {
+    payload = renderHSLPayload(hslTuple)
+    sendCommandToDevice("hsl", payload)
 }
 
 /***********************************************************************************
  *
- * publishSetPreset(presetNo)
+ * deviceSetPreset(presetNo)
  *
  ***********************************************************************************/
 
-def publishSetPreset(presetNo)
-{
-    // Only perform the publishing if the user has provided us with an
-    // MQTT topic as a destination to which we can publish.
-    
-    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
-
-    if (publishRequired)
-    {
-        topic = constructTopic(settings.brokerTopicPrefix, "preset/set")
-        payload = renderPresetPayload(presetNo)
-        
-        // Note: we do *not* want the message to be retained by the broker. This is
-        // a command and has to be enacted when requested - we don't want it to be
-        // unexpectedly honoured hours later if the blind has been turned off.
-        
-        // We don't mind duplicate messages. Sending a set position message twice is 
-        // fine as any subsequent to the first are merely redundant and without
-        // harmful consequence. So let's not demand more of MQTT than we need and
-        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
-
-        tryPublish(topic, payload, qos=1, retain = false)
-    }
+def deviceSetPreset(presetNo) {
+    payload = renderPresetPayload(presetNo)
+    sendCommandToDevice("preset", payload)
 }   
 
 /***********************************************************************************
@@ -871,7 +737,7 @@ def renderBrightnessPayload(brightness) {
 
 /***********************************************************************************
  *
- * renderRGBPayload(rgb)
+ * renderWhitePayload(rgb)
  *
  ***********************************************************************************/
 
@@ -895,16 +761,6 @@ def renderRGBPayload(rgbTuple) {
 
 /***********************************************************************************
  *
- * renderPresetPayload(presetNo)
- *
- ***********************************************************************************/
-
-def renderPresetPayload(preset) {
-    return preset.toString()    
-}
-
-/***********************************************************************************
- *
  * renderRGBPayload(rgb)
  *
  ***********************************************************************************/
@@ -919,16 +775,48 @@ def renderHSLPayload(hsvTuple) {
 
 /***********************************************************************************
  *
- * parseBool(state)
+ * renderPresetPayload(presetNo)
  *
  ***********************************************************************************/
 
-def boolean parseBool(str) {
-    boolean state = false;
-    if ((str.equalsIgnoreCase("on")) || (str.equalsIgnoreCase("true")) || (str.equalsIgnoreCase("yes")) || (str.equalsIgnoreCase("enable")) || (str.equalsIgnoreCase("enabled")) || (str.equals("1"))) {
-        state = true
-    } 
-    return state;   
+def renderPresetPayload(preset) {
+    return preset.toString()    
+}
+
+/***********************************************************************************
+ *
+ * sendToDevice(subTopic, payload)
+ *
+ ***********************************************************************************/
+
+def sendCommandToDevice(attributeName, payload)
+{
+    // Only perform the publishing if the user has provided us with an
+    // MQTT topic as a destination to which we can publish.
+    
+    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
+
+    if (publishRequired)
+    {
+        subTopic = attributeName + "/set"
+        topic = constructTopic(settings.brokerTopicPrefix, subTopic)
+        
+        // Note: we do *not* want the message to be retained by the broker. This is
+        // a command and has to be enacted when requested - we don't want it to be
+        // unexpectedly honoured hours later if the blind has been turned off.
+        
+        // We don't mind duplicate messages. Sending a set position message twice is 
+        // fine as any subsequent to the first are merely redundant and without
+        // harmful consequence. So let's not demand more of MQTT than we need and
+        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
+
+        serviceLevel = 1
+        retainMode = false
+
+        tryPublish(topic, payload, qos = serviceLevel, retain = retainMode)
+    }
+    
+    return publishRequired
 }
 
 /***********************************************************************************
@@ -1099,6 +987,20 @@ def hsvToRGB(hue, sat, vol)
     B = (int)((b+m)*255)
     
     return [red: R, green: G, blue: B];
+}
+
+/***********************************************************************************
+ *
+ * parseBool(state)
+ *
+ ***********************************************************************************/
+
+def boolean parseBool(str) {
+    boolean state = false;
+    if ((str.equalsIgnoreCase("on")) || (str.equalsIgnoreCase("true")) || (str.equalsIgnoreCase("yes")) || (str.equalsIgnoreCase("enable")) || (str.equalsIgnoreCase("enabled")) || (str.equals("1"))) {
+        state = true
+    } 
+    return state;   
 }
 
 /***********************************************************************************
