@@ -33,31 +33,31 @@ metadata
         capability "Initialize"          // initialize()
         capability "Actuator"            // -
         capability "Light"               // on() off()    // DO we need this as well as Swithc?
-		capability "Switch"              // on() off() 
+        capability "Switch"              // on() off() 
         capability "SwitchLevel"         // setLevel(level, duration)
         capability "ColorControl"        // setColor(???)  setHue(hue)   setSaturationsat)
-		capability "LightEffects"        // setEffect(preset#), setNextEffect(), setPreviousEffect()
-		capability "ColorTemperature"    // setColorTemperature(kelvin, level, transition-time)
-		// capability "Alarm"               // strobe(), off()     /* Oops! off() is for "Light" and "Alarm" - how to distinquish? Custom attributes?
+        capability "LightEffects"        // setEffect(preset#), setNextEffect(), setPreviousEffect()
+        capability "ColorTemperature"    // setColorTemperature(kelvin, level, transition-time)
+        // capability "Alarm"               // strobe(), off()     /* Oops! off() is for "Light" and "Alarm" - how to distinquish? Custom attributes?
     }
 }
 
 preferences
 {
     section()
-	{
-		input name: "brokerURL", type: "text", 
+    {
+        input name: "brokerURL", type: "text", 
             title: "MQTT Broker URL", defaultValue: "mqtt.local", required: true
         
-		input name: "brokerPort", type: "number",
+        input name: "brokerPort", type: "number",
             title: "MQTT Broker Port", defaultValue: 1883, required: true
 
-		input name: "brokerProtocol", type: "text",
+        input name: "brokerProtocol", type: "text",
             title: "Protocol", defaultValue: "tcp", required: true
 
-		input name: "brokerTopicPrefix", type: "text",
-			title: "Topic Prefix", defaultValue: "", required: true
-			
+        input name: "brokerTopicPrefix", type: "text",
+            title: "Topic Prefix", defaultValue: "", required: true
+            
         // ---
         
         input name: "requiresCredentials", type: "bool",
@@ -324,13 +324,13 @@ def subscribeToTopics()
     // target, we still want to know what it is.
     
     if (isTopicProvided(settings.brokerTopicPrefix))
-	{
-		topic = constructTopic(settings.brokerTopicPrefix, "#");
-		
+    {
+        topic = constructTopic(settings.brokerTopicPrefix, "#");
+        
         if (settings.logEnable) {
             logDebug("Subscribing to '${topic}'")
         }
-		
+        
         interfaces.mqtt.subscribe(topic)
     }    
 }
@@ -382,47 +382,47 @@ def parse(String message)
 
 def processIncoming(topic, payload)
 {
-	if (topic.endsWith("power")) {
-		isOn = parseBoolPayload(payload);
+    if (topic.endsWith("power")) {
+        isOn = parseBoolPayload(payload);
         sendEvent(name: "switch", value: isOn, isStateChange: true)
         this.power = isOn
-	}
-	
-	else if (topic.endsWith("brightness")) {
-		brightness = Integer.parseInt(payload);
+    }
+    
+    else if (topic.endsWith("brightness")) {
+        brightness = Integer.parseInt(payload);
         sendEvent(name: "level", value: brightness, isStateChange: true) // The dimmer perspective.
-		this.brightness = brightness 
-	}
-	
-	else if (topic.endsWith("white")) {
-		kelvin = Integer.parseInt(payload);
+        this.brightness = brightness 
+    }
+    
+    else if (topic.endsWith("white")) {
+        kelvin = Integer.parseInt(payload);
         sendEvent(name: "colortemperature", value: kelvin, isStateChange: true)
-		this.kelvin = kelvin
-	}
+        this.kelvin = kelvin
+    }
 
-	else if (topic.endsWith("rgb")) {
-		rgb = Integer.parseInt(payload, 16);
+    else if (topic.endsWith("rgb")) {
+        rgb = Integer.parseInt(payload, 16);
         sendEvent(name: "RGB", value: rgb, isStateChange: true)
-		this.rgb = rgb
-	}
-	
-	else if (topic.endsWith("preset")) {
-		presetNo = Integer.parseInt(payload);
-        sendEvent(name: "effectName", value: payload, isStateChange: true)	
-		this.preset = preset
-	}
+        this.rgb = rgb
+    }
+    
+    else if (topic.endsWith("preset")) {
+        presetNo = Integer.parseInt(payload);
+        sendEvent(name: "effectName", value: payload, isStateChange: true)  
+        this.preset = preset
+    }
 
-	/***
-	else if (topic.endsWith("alert")) {
-		isOn = parseBoolPayload(payload);
-		state = isOn ? "strobe" : "off"
-        sendEvent(name: "alarm", value: state, isStateChange: true)	
-	}
-	***/
-	
-	else {
-		logWarn("Ignored MQTT topic (topic ${topic}), payload '${payload}'");
-	}
+    /***
+    else if (topic.endsWith("alert")) {
+        isOn = parseBoolPayload(payload);
+        state = isOn ? "strobe" : "off"
+        sendEvent(name: "alarm", value: state, isStateChange: true) 
+    }
+    ***/
+    
+    else {
+        logWarn("Ignored MQTT topic (topic ${topic}), payload '${payload}'");
+    }
 }
 
 /***********************************************************************************
@@ -451,13 +451,13 @@ def isTopicProvided(requestedTopic)
 
 def constructTopic(prefix, subTopic)
 {
-	topic = prefix
-	
-	if (!prefix.endsWith("/")) {
-		topic = topic + "/"
-	}
-	
-	topic = topic + subTopic
+    topic = prefix
+    
+    if (!prefix.endsWith("/")) {
+        topic = topic + "/"
+    }
+    
+    topic = topic + subTopic
 }
 
 /***********************************************************************************
@@ -468,8 +468,8 @@ def constructTopic(prefix, subTopic)
 
 def on() {
     logDebug("Performing on().")
-	sendEvent(name: "switch", value: "on", descriptionText: "${device.displayName} is on")
-	publishSetOnOff(true)
+    sendEvent(name: "switch", value: "on", descriptionText: "${device.displayName} is on")
+    publishSetOnOff(true)
 }
 
 /***********************************************************************************
@@ -480,8 +480,8 @@ def on() {
 
 def off() {
     logDebug("Performing off().")
-	sendEvent(name: "switch", value: "off", descriptionText: "${device.displayName} is off")
-	publishSetOnOff(false)
+    sendEvent(name: "switch", value: "off", descriptionText: "${device.displayName} is off")
+    publishSetOnOff(false)
 }
 
 /***********************************************************************************
@@ -520,9 +520,9 @@ def publishSetOnOff(on)
 
     if (publishRequired)
     {
-		topic = constructTopic(settings.brokerTopicPrefix, "power/set")
-		payload = renderPowerPayload(on)
-		
+        topic = constructTopic(settings.brokerTopicPrefix, "power/set")
+        payload = renderPowerPayload(on)
+        
         // Note: we do *not* want the message to be retained by the broker. This is
         // a command and has to be enacted when requested - we don't want it to be
         // unexpectedly honoured hours later if the blind has been turned off.
@@ -532,8 +532,8 @@ def publishSetOnOff(on)
         // harmful consequence. So let's not demand more of MQTT than we need and
         // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
 
-		tryPublish(topic, payload, qos=1, retain = false)
-	}
+        tryPublish(topic, payload, qos=1, retain = false)
+    }
 }
 
 /***********************************************************************************
@@ -551,7 +551,7 @@ def publishSetBrightness(brightness)
 
     if (publishRequired)
     {
-		topic = constructTopic(settings.brokerTopicPrefix, "brightness/set")
+        topic = constructTopic(settings.brokerTopicPrefix, "brightness/set")
         payload = renderBrightnessPayload(brightness)
         
         // Note: we do *not* want the message to be retained by the broker. This is
@@ -584,7 +584,7 @@ def publishSetColour(colour)
 
     if (publishRequired)
     {
-		topic = constructTopic(settings.brokerTopicPrefix, "rgb/set")   /* does this need to be hsv? I think so! */
+        topic = constructTopic(settings.brokerTopicPrefix, "rgb/set")   /* does this need to be hsv? I think so! */
         payload = renderColourPayload(brightness)
         
         // Note: we do *not* want the message to be retained by the broker. This is
@@ -609,7 +609,7 @@ def publishSetColour(colour)
  ***********************************************************************************/
 
 def renderPowerPayload(on) {
-	return on ? "on" : "off";
+    return on ? "on" : "off";
 }
 
 /***********************************************************************************
@@ -619,7 +619,7 @@ def renderPowerPayload(on) {
  ***********************************************************************************/
 
 def renderBrightnessPayload(brightness) {
-	return brightness.toString();
+    return brightness.toString();
 }
 
 /***********************************************************************************
@@ -629,7 +629,7 @@ def renderBrightnessPayload(brightness) {
  ***********************************************************************************/
 
 def renderRGBPayload(rgb) {
-	return Integer.toHexString(rgb);
+    return Integer.toHexString(rgb);
 }
 
 /***********************************************************************************
