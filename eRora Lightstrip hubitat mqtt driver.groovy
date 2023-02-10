@@ -32,10 +32,11 @@ metadata
     ) {
         capability "Initialize"          // initialize()
         capability "Actuator"            // -
-        capability "Light"               // on() off()    // DO we need this as well as Swithc?
+        capability "Light"               // on() off()
         capability "Switch"              // on() off() 
         capability "SwitchLevel"         // setLevel(level, duration)
-        capability "ColorControl"        // setColor(???)  setHue(hue)   setSaturationsat)
+        // capability "ChangeLevel"      // startLevelChange(dir), stopLevelChange()
+        capability "ColorControl"        // setColor(???)  setHue(hue)   setSaturation(sat)
         capability "LightEffects"        // setEffect(preset#), setNextEffect(), setPreviousEffect()
         capability "ColorTemperature"    // setColorTemperature(kelvin, level, transition-time)
         // capability "Alarm"               // strobe(), off()     /* Oops! off() is for "Light" and "Alarm" - how to distinquish? Custom attributes?
@@ -46,44 +47,96 @@ preferences
 {
     section()
     {
-        input name: "brokerURL", type: "text", 
-            title: "MQTT Broker URL", defaultValue: "mqtt.local", required: true
+        input (
+            name: "brokerURL", 
+            type: "text", 
+            title: "MQTT Broker URL", 
+            defaultValue: "mqtt.local", 
+            required: true
+        )
         
-        input name: "brokerPort", type: "number",
-            title: "MQTT Broker Port", defaultValue: 1883, required: true
-
-        input name: "brokerProtocol", type: "text",
-            title: "Protocol", defaultValue: "tcp", required: true
-
-        input name: "brokerTopicPrefix", type: "text",
-            title: "Topic Prefix", defaultValue: "", required: true
-            
-        // ---
+        input (
+            name: "brokerPort",
+            type: "number",
+            title: "MQTT Broker Port",
+            defaultValue: 1883,
+            required: true
+        )
         
-        input name: "requiresCredentials", type: "bool",
-            title: "Requires credentials", defaultValue: false, required: false
+        input (
+            name: "brokerProtocol",
+            type: "text",
+            title: "Protocol",
+            defaultValue: "tcp",
+            required: true
+        )
         
-        input name: "brokerUserName", type: "text",
-            title: "User Name (optional)", defaultValue: null, required: false
-
-        input name: "brokerPassword", type: "text",
-            title: "Password (optional)", defaultValue: null, required: false
-
-        // ---
-
-        input name: "clientCert", type: "text",
-            title: "Client Certificate (optional)", required: false
-        
-        input name: "caCert", type: "text",
-            title: "CA Certificate (optional)", required: false
-        
-        input name: "privateKey", type: "text",
-            title: "Private Key (optional)", required: false
+        input (
+            name: "brokerTopicPrefix",
+            type: "text",
+            title: "Topic Prefix",
+            defaultValue: null,
+            required: true
+        )
         
         // ---
+        
+        input (
+            name: "requiresCredentials",
+            type: "bool",
+            title: "Requires credentials",
+            defaultValue: false,
+            required: false
+        )
+        
+        input (
+            name: "brokerUserName",
+            type: "text",
+            title: "User Name (optional)",
+            defaultValue: null,
+            required: false
+        )
+        
+        input (
+            name: "brokerPassword",
+            type: "text",
+            title: "Password (optional)",
+            defaultValue: null,
+            required: false
+        )
+        
+        // ---
 
-        input name: "logEnable", type: "bool",
-            title: "Enable debug logging", defaultValue: true
+        input (
+            name: "clientCert",
+            type: "text",
+            title: "Client Certificate (optional)",
+            required: false
+        )
+        
+        input (
+            name: "caCert",
+            type: "text",
+            title: "CA Certificate (optional)",
+            required: false
+        )
+        
+        input (
+            name: "privateKey",
+            type: "text",
+            title: "Private Key (optional)",
+            required: false
+        )
+    }
+    
+    section()
+    {
+        input (
+            name: "logEnable",
+            type: "bool",
+            title: "Enable debug logging",
+            defaultValue: true
+        )
     }
 }
 
@@ -96,9 +149,6 @@ preferences
 def initialize()
 {
     logDebug("initializing.")
-
-    state.targetPosition = 0
-    state.actualPosition = 0
 
     connect()
     subscribeToTopics()
@@ -121,6 +171,7 @@ def configure()
     logDebug("configure: state is ${state}")
     
     connect()
+    subscribeToTopics()
     
     logDebug("Finished configuring.")
 }
@@ -136,7 +187,7 @@ def updated()
     logDebug("Updated...")
     logWarn("Debug logging is: ${settings.logEnable == true}")
     
-    if (settings.logEnable) runIn(1800, logsOff)
+    ////// if (settings.logEnable) runIn(1800, logsOff)
 }
 
 /***********************************************************************************
@@ -245,7 +296,7 @@ def connectToBroker()
     // the connection being refused. One way to avoid this is to generate a client
     // ID which is partially random each time.
     
-    clientID = "hubitat-shade-" + (Math.abs(new Random().nextInt() % 1000000)).toString()
+    clientID = "hubitat-eRora-" + (Math.abs(new Random().nextInt() % 1000000)).toString()
 
     userName = ""
     password = ""
@@ -323,16 +374,28 @@ def subscribeToTopics()
     // the blind and if it is us that has not set the current
     // target, we still want to know what it is.
     
-    if (isTopicProvided(settings.brokerTopicPrefix))
-    {
-        topic = constructTopic(settings.brokerTopicPrefix, "#");
-        
-        if (settings.logEnable) {
-            logDebug("Subscribing to '${topic}'")
-        }
-        
-        interfaces.mqtt.subscribe(topic)
+    if (isTopicProvided(settings.brokerTopicPrefix)) {
+        subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "power"));
+        subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "brightness"));
+        subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "white"));
+        subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "rgb"));
+        subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "preset"));        
     }    
+}
+
+/***********************************************************************************
+ *
+ * subscribeToTopics()
+ *
+ ***********************************************************************************/
+
+def subscribeToTopic(topic)
+{
+    if (settings.logEnable) {
+        logDebug("Subscribing to '${topic}'")
+    }
+
+    interfaces.mqtt.subscribe(topic)
 }
 
 /***********************************************************************************
@@ -354,7 +417,9 @@ def refresh() {
 def parse(String message)
 {
     // It's not our thread, so protect it.
-    
+
+    logDebug("MQTT incoming: '${message}'")
+
     try 
     {
         def map = interfaces.mqtt.parseMessage(message)
@@ -370,7 +435,7 @@ def parse(String message)
     }
     
     catch (Exception ex) {
-        logWarn("Attempt to parse MQTT message (topic ${topic}, payload: ${payload}): ${ex.message} (${ex})")
+        logWarn("Attempt to parse MQTT message (topic '${topic}', payload: '${payload}'): ${ex.message} (${ex})")
     }
 }
 
@@ -382,31 +447,45 @@ def parse(String message)
 
 def processIncoming(topic, payload)
 {
-    if (topic.endsWith("power")) {
-        isOn = parseBoolPayload(payload);
-        sendEvent(name: "switch", value: isOn, isStateChange: true)
+    logDebug("Topic and payload incoming: '${topic}', '${payload}'")
+    
+    if (topic.endsWith("/power")) {
+        isOn = parseBool(payload);
+        sendEvent(name: "switch", value: isOn ? "on" : "off", isStateChange: true)
         this.power = isOn
     }
     
-    else if (topic.endsWith("brightness")) {
+    else if (topic.endsWith("/brightness")) {
         brightness = Integer.parseInt(payload);
         sendEvent(name: "level", value: brightness, isStateChange: true) // The dimmer perspective.
         this.brightness = brightness 
     }
     
-    else if (topic.endsWith("white")) {
+    else if (topic.endsWith("/white")) {
         kelvin = Integer.parseInt(payload);
-        sendEvent(name: "colortemperature", value: kelvin, isStateChange: true)
+        sendEvent(name: "colorMode", value: "W", displayed:false)
+        sendEvent(name: "colorTemperature", value: kelvin, isStateChange: true)
         this.kelvin = kelvin
     }
 
-    else if (topic.endsWith("rgb")) {
-        rgb = Integer.parseInt(payload, 16);
-        sendEvent(name: "RGB", value: rgb, isStateChange: true)
+    else if (topic.endsWith("/rgb")) {
+        if (payload.startsWith('#')) {
+            payload = payload.substring(1);   
+        }
+        payload = "#" + payload.toUpperCase();
+        rgbTuple = hubitat.helper.ColorUtils.hexToRGB(payload)
+        logDebug("rgb tuple is ${rgbTuple}");        
+        hsvTuple = hubitat.helper.ColorUtils.rgbToHSV(rgbTuple)
+        logDebug("hsv value is ${hsvTuple}");        
+        // sendEvent(name: "RGB", value: rgb, isStateChange: true) 
+        sendEvent(name: "colorMode", value: "RGB", displayed:false)
+        sendEvent(name: "hue", value: hsvTuple[0], isStateChange: true) 
+        sendEvent(name: "saturation", value: hsvTuple[1], isStateChange: true)
+        // sendEvent(name: "level", value: hsvTuple[2], isStateChange: true) // The dimmer perspective.
         this.rgb = rgb
     }
     
-    else if (topic.endsWith("preset")) {
+    else if (topic.endsWith("/preset")) {
         presetNo = Integer.parseInt(payload);
         sendEvent(name: "effectName", value: payload, isStateChange: true)  
         this.preset = preset
@@ -414,7 +493,7 @@ def processIncoming(topic, payload)
 
     /***
     else if (topic.endsWith("alert")) {
-        isOn = parseBoolPayload(payload);
+        isOn = parseBool(payload);
         state = isOn ? "strobe" : "off"
         sendEvent(name: "alarm", value: state, isStateChange: true) 
     }
@@ -501,8 +580,73 @@ def setLevel(level) {
  *
  ***********************************************************************************/
 
-def setColor(colorMap) {
-    logDebug("Performing setColor(${colorMap})   - NOTE: NOT HANDLED YET!.")
+def setColor(hslTuple) {
+    logDebug("Performing setColor(${hslTuple}).")
+    rgbTuple = hubitatHsvToRGB(hslTuple)
+    publishSetRGBColor(rgbTuple)
+}
+
+/***********************************************************************************
+ *
+ * setColorTemperture(colorMap)
+ *
+ ***********************************************************************************/
+
+def setColorTemperature(kelvin)
+{
+    logDebug("Performing setColorTemperature(${kelvin}).")
+    publishSetWhite(kelvin);    
+}
+
+/***********************************************************************************
+ *
+ * setHue(hue)
+ *
+ ***********************************************************************************/
+
+def setHue(hue) {
+    logDebug("Performing setHue(${hue})   - NOTE: NOT HANDLED YET!.")
+}
+
+/***********************************************************************************
+ *
+ * setSaturation(sat)
+ *
+ ***********************************************************************************/
+
+def setSaturation(sat) {
+    logDebug("Performing setSaturation(${sat})   - NOTE: NOT HANDLED YET!.")
+}
+
+/***********************************************************************************
+ *
+ * setEffect(presetNo)
+ *
+ ***********************************************************************************/
+
+def setEffect(presetNo) {
+    logDebug("Performing setEffect(${presetNo})   - NOTE: NOT HANDLED YET!.")
+     publishSetPreset(presetNo); 
+}
+
+/***********************************************************************************
+ *
+ * setPreviousEffect()
+ *
+ ***********************************************************************************/
+
+def setPreviousEffect() {
+    logDebug("Performing setPreviousEffect()   - NOTE: NOT HANDLED YET!.")
+}
+
+/***********************************************************************************
+ *
+ * setNextEffect()
+ *
+ ***********************************************************************************/
+
+def setNextEffect() {
+    logDebug("Performing setNextEffect()   - NOTE: NOT HANDLED YET!.")
 }
 
 /***********************************************************************************
@@ -571,21 +715,23 @@ def publishSetBrightness(brightness)
 
 /***********************************************************************************
  *
- * publishSetBrightness(position)
+ * publishSetRGBColor(position)
  *
  ***********************************************************************************/
 
-def publishSetColour(colour)
+def publishSetRGBColor(rgbTuple)
 {
     // Only perform the publishing if the user has provided us with an
     // MQTT topic as a destination to which we can publish.
     
-    publishRequired = isTopicProvided(settings.setPositionPubTopic)
+    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
 
     if (publishRequired)
     {
-        topic = constructTopic(settings.brokerTopicPrefix, "rgb/set")   /* does this need to be hsv? I think so! */
-        payload = renderColourPayload(brightness)
+        topic = constructTopic(settings.brokerTopicPrefix, "rgb/set")  
+        payload = renderRGBPayload(rgbTuple)
+        
+        logDebug("Publishing (${payload}).")
         
         // Note: we do *not* want the message to be retained by the broker. This is
         // a command and has to be enacted when requested - we don't want it to be
@@ -596,11 +742,112 @@ def publishSetColour(colour)
         // harmful consequence. So let's not demand more of MQTT than we need and
         // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
         
-        tryPublish(settings.setPositionPubTopic, payload, qos=1, retain=false)
+        tryPublish(topic, payload, qos=1, retain=false)
     }
     
     return publishRequired
 }
+
+/***********************************************************************************
+ *
+ * publishSetWhite(kelvin)
+ *
+ ***********************************************************************************/
+
+def publishSetWhite(kelvin)
+{
+    // Only perform the publishing if the user has provided us with an
+    // MQTT topic as a destination to which we can publish.
+    
+    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
+
+    if (publishRequired)
+    {
+        topic = constructTopic(settings.brokerTopicPrefix, "white/set")   
+        payload = renderWhitePayload(kelvin)
+        
+        logDebug("Publishing (${payload}).")
+        
+        // Note: we do *not* want the message to be retained by the broker. This is
+        // a command and has to be enacted when requested - we don't want it to be
+        // unexpectedly honoured hours later if the blind has been turned off.
+        
+        // We don't mind duplicate messages. Sending a set position message twice is 
+        // fine as any subsequent to the first are merely redundant and without
+        // harmful consequence. So let's not demand more of MQTT than we need and
+        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
+        
+        tryPublish(topic, payload, qos=1, retain=false)
+    }
+    
+    return publishRequired
+}
+
+/***********************************************************************************
+ *
+ * publishSetHSLColor(position)
+ *
+ ***********************************************************************************/
+
+def publishSetHSLColor(hslTuple)
+{
+    // Only perform the publishing if the user has provided us with an
+    // MQTT topic as a destination to which we can publish.
+    
+    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
+
+    if (publishRequired)
+    {
+        topic = constructTopic(settings.brokerTopicPrefix, "hsl/set")   /* does this need to be hsv? I think so! */
+        payload = renderHSLPayload(hslTuple)
+        
+        logDebug("Publishing (${payload}).")
+        
+        // Note: we do *not* want the message to be retained by the broker. This is
+        // a command and has to be enacted when requested - we don't want it to be
+        // unexpectedly honoured hours later if the blind has been turned off.
+        
+        // We don't mind duplicate messages. Sending a set position message twice is 
+        // fine as any subsequent to the first are merely redundant and without
+        // harmful consequence. So let's not demand more of MQTT than we need and
+        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
+        
+        tryPublish(topic, payload, qos=1, retain=false)
+    }
+    
+    return publishRequired
+}
+
+/***********************************************************************************
+ *
+ * publishSetPreset(presetNo)
+ *
+ ***********************************************************************************/
+
+def publishSetPreset(presetNo)
+{
+    // Only perform the publishing if the user has provided us with an
+    // MQTT topic as a destination to which we can publish.
+    
+    publishRequired = isTopicProvided(settings.brokerTopicPrefix)
+
+    if (publishRequired)
+    {
+        topic = constructTopic(settings.brokerTopicPrefix, "preset/set")
+        payload = renderPresetPayload(presetNo)
+        
+        // Note: we do *not* want the message to be retained by the broker. This is
+        // a command and has to be enacted when requested - we don't want it to be
+        // unexpectedly honoured hours later if the blind has been turned off.
+        
+        // We don't mind duplicate messages. Sending a set position message twice is 
+        // fine as any subsequent to the first are merely redundant and without
+        // harmful consequence. So let's not demand more of MQTT than we need and
+        // keep the handshaking/traffic to a minimum. Hence a QoS of 1.
+
+        tryPublish(topic, payload, qos=1, retain = false)
+    }
+}   
 
 /***********************************************************************************
  *
@@ -628,8 +875,60 @@ def renderBrightnessPayload(brightness) {
  *
  ***********************************************************************************/
 
-def renderRGBPayload(rgb) {
-    return Integer.toHexString(rgb);
+def renderWhitePayload(kelvin) {
+    return kelvin.toString();    
+}
+
+/***********************************************************************************
+ *
+ * renderRGBPayload(rgb)
+ *
+ ***********************************************************************************/
+
+def renderRGBPayload(rgbTuple) {
+    logDebug("Rendering rgb ${rgbTuple}...")
+    // hexStr = hubitat.helper.ColorUtils.rgbToHEX(rgbTuple)
+    hexStr = rgbToHEX(rgbTuple)
+    logDebug("RGB as hex is ${hexStr}.")
+    return hexStr;
+}
+
+/***********************************************************************************
+ *
+ * renderPresetPayload(presetNo)
+ *
+ ***********************************************************************************/
+
+def renderPresetPayload(preset) {
+    return preset.toString()    
+}
+
+/***********************************************************************************
+ *
+ * renderRGBPayload(rgb)
+ *
+ ***********************************************************************************/
+
+def renderHSLPayload(hsvTuple) {
+    logDebug("Rendering hsl ${hsvTuple}...")
+    // hexStr = hubitat.helper.ColorUtils.hsvToHEX(hsvTuple)
+    hexStr = hsvToHEX(hsvTuple)
+    logDebug("HSL as hex is ${hexStr}.")
+    return hexStr;
+}
+
+/***********************************************************************************
+ *
+ * parseBool(state)
+ *
+ ***********************************************************************************/
+
+def boolean parseBool(str) {
+    boolean state = false;
+    if ((str.equalsIgnoreCase("on")) || (str.equalsIgnoreCase("true")) || (str.equalsIgnoreCase("yes")) || (str.equalsIgnoreCase("enable")) || (str.equalsIgnoreCase("enabled")) || (str.equals("1"))) {
+        state = true
+    } 
+    return state;   
 }
 
 /***********************************************************************************
@@ -650,7 +949,7 @@ def tryPublish(targetTopic, payload, QoS, retain)
         topic = targetTopic.trim()
         message = (payload ? payload : "")
         
-        logDebug("Publish to '${topic}' message '${message}'")
+        logDebug("MQTT publish to '${topic}' message '${message}'")
         
         interfaces.mqtt.publish(topic, message, (int)QoS, retain)
         success = true
@@ -661,6 +960,145 @@ def tryPublish(targetTopic, payload, QoS, retain)
     }
     
     return success
+}
+
+/***********************************************************************************
+ *
+ * rgbToHEX(hsvTuple)
+ *
+ ***********************************************************************************/
+
+// In lieu of hubitat..helper.ColorUtils.rgbToHEX which seems absent in the version
+// of Hubitat I'm using.
+
+def rgbToHEX(rgbTuple)
+{
+    // logDebug("rgbToHEX(${rgbTuple})")
+    r = rgbTuple["red"]
+    g = rgbTuple["green"]
+    b = rgbTuple["blue"]
+    return tupleToHex(r, g, b)
+}
+
+/***********************************************************************************
+ *
+ * hsvToHEX(hsvTuple)
+ *
+ ***********************************************************************************/
+
+// In lieu of hubitat..helper.ColorUtils.hsvToHEX which seems absent in the version
+// of Hubitat I'm using.
+
+def hsvToHEX(hsvTuple)
+{
+    h = hsvTuple["hue"]
+    s = hsvTuple["saturation"]
+    v = hsvTuple["level"]
+    return tupleToHex(h, s, v)
+}
+
+/***********************************************************************************
+ *
+ * tupleToHex(a, b, c)
+ *
+ ***********************************************************************************/
+
+def tupleToHex(a, b, c) {
+    String aHex = String.format("%02X", a)    
+    String bHex = String.format("%02X", b)    
+    String cHex = String.format("%02X", c)
+    return aHex + bHex + cHex;
+}
+
+/***********************************************************************************
+ *
+ * hubitatHsvToRGB(h, s, v)
+ *
+ ***********************************************************************************/
+
+def hubitatHsvToRGB(hsvTuple) {
+    // logDebug("converting Hsv ${hsvTuple} to RGB...")
+    h = hsvTuple["hue"]
+    s = hsvTuple["saturation"]
+    v = hsvTuple["level"]
+    rgbTuple = hsvToRGB((int)(3.6 * h), (int)s, (int)v)    
+    // logDebug("hsv ${hsvTuple} converted to rgb ${rgbTuple}")
+    return rgbTuple
+}
+
+/***********************************************************************************
+ *
+ * hsvToRGB(h, s, v)
+ *
+ ***********************************************************************************/
+
+def hsvToRGB(hue, sat, vol)
+{
+    H = 1.0 * hue
+    S = 1.0 * sat
+    V = 1.0 * vol
+    
+    if (H < 0) H = 0
+    if (H > 360) H = 360
+    
+    if (S < 0) S = 0
+    if (S > 100) S = 100
+    
+    if (V < 0) V = 0
+    if (V > 100) V = 100
+    
+    s = 1.0 * S / 100
+    v = 1.0 * V / 100
+    C = 1.0 * s * v
+    // X = C * (1 - abs(fmod(H/60.0, 2) - 1))
+    X = C * (1 - Math.abs( (((float)H/60.0) % 2) - 1 ))
+    m = v-C
+
+    r = 0.0
+    g = 0.0
+    b = 0.0
+    
+    if (H >= 0 && H < 60){
+        r = C
+        g = X
+        b = 0
+    }
+    
+    else if (H >= 60 && H < 120){
+        r = X
+        g = C
+        b = 0
+    }
+    
+    else if (H >= 120 && H < 180){
+        r = 0
+        g = C
+        b = X;
+    }
+    
+    else if (H >= 180 && H < 240){
+        r = 0
+        g = X
+        b = C
+    }
+    
+    else if (H >= 240 && H < 300){
+        r = X
+        g = 0
+        b = C
+    }
+    
+    else{
+        r = C
+        g = 0
+        b = X
+    }
+    
+    R = (int)((r+m)*255)
+    G = (int)((g+m)*255)
+    B = (int)((b+m)*255)
+    
+    return [red: R, green: G, blue: B];
 }
 
 /***********************************************************************************
