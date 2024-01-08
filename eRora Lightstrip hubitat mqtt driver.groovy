@@ -566,7 +566,7 @@ def processIncoming(topic, payload)
         
         if (parts.length > 0) {
             presetNo = Integer.parseInt(parts[0]);
-            sendEvent(name: "effectName", value: payload, isStateChange: true);
+            sendEvent(name: "effectName", value: presetNo, isStateChange: true);
             this.preset = preset;
             handled = true;
         }
