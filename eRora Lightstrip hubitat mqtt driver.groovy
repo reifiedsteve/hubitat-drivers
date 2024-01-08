@@ -486,9 +486,15 @@ def processIncoming(topic, payload)
     }
     
     else if (topic.endsWith("/preset")) {
-        presetNo = Integer.parseInt(payload);
-        sendEvent(name: "effectName", value: payload, isStateChange: true)  
-        this.preset = preset
+        // Could be two parts.
+        // First part is the preset number.
+        // Second (optional) part is the preset name.
+        parts = payload.split(" ");
+        if (parts.length > 0) {
+            presetNo = Integer.parseInt(parts[0];
+            sendEvent(name: "effectName", value: payload, isStateChange: true);
+            this.preset = preset;
+        }
     }
 
     /***
