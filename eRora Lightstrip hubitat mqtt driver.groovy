@@ -28,18 +28,16 @@ metadata
         name: "eRora Lightstrip (MQTT)", 
         namespace: "Reified", 
         author: "Steve Morley"       // , 
-        // importUrl: "https://raw.githubusercontent.com/reified/..../mqttMultiLevelSwitch.groovy"
+        // importUrl: "https://github.com/reifiedsteve/hubitat-drivers/blob/master/eRora%20Lightstrip%20hubitat%20mqtt%20driver.groovy"
     ) {
         capability "Initialize"          // initialize()
-        capability "Actuator"            // -
+        // capability "Actuator"            // -
         capability "Light"               // on() off()
-        capability "Switch"              // on() off() 
+        //capability "Switch"              // on() off() 
         capability "SwitchLevel"         // setLevel(level, duration)
-        // capability "ChangeLevel"      // startLevelChange(dir), stopLevelChange()
         capability "ColorControl"        // setColor(???)  setHue(hue)   setSaturation(sat)
         capability "LightEffects"        // setEffect(preset#), setNextEffect(), setPreviousEffect()
-        capability "ColorTemperature"    // setColorTemperature(kelvin, level, transition-time)
-        // capability "Alarm"               // strobe(), off()     /* Oops! off() is for "Light" and "Alarm" - how to distinquish? Custom attributes?
+        // capability "ColorTemperature"    // setColorTemperature(kelvin, level, transition-time)
     }
 }
 
@@ -150,6 +148,8 @@ def initialize()
 {
     logDebug("initializing.")
 
+    state.connecting = false;
+    
     connect()
     subscribeToTopics()
 
@@ -201,17 +201,20 @@ def connect()
     logDebug("Connecting...")
     
     try {
+        state.connecting = true;
         connectToBroker()
         boolean connected = interfaces.mqtt.isConnected() 
         logDebug("MQTT broker is ${connected ? 'connected' : 'disconnected'}")
     }
     
     catch (Exception ex) {
+        state.connecting = false;
         logError("Cannot connect: ${ex}")
     }
 
-    if (settings.logEnable) 
+    if (settings.logEnable) {
         logDebug("Finished connecting.")
+    }
 }
 
 /***********************************************************************************
@@ -226,7 +229,8 @@ def disconnect()
         if (interfaces.mqtt.isConnected()) {
             interfaces.mqtt.disconnect()
         }
-        state.connected = false
+        state.connecting = false;
+        state.connected = false;
     }
     
     catch (Exception ex) {
@@ -257,6 +261,10 @@ def mqttClientStatus(String message)
     
     else if (message.startsWith('Error')) {
         onError(message)
+    }
+
+    if (!interfaces.mqtt.isConnected() && !state.connecting) {
+         connect();   
     }
 }
 
@@ -348,6 +356,8 @@ def connectToBroker()
 
     // Connect options, see https://docs.hubitat.com/index.php?title=MQTT_Interface#Overview
     
+    logInfo("Connecting to ${urlStr} using u:'${userName}', p:'${password}'");
+    
     try {  
         interfaces.mqtt.connect(options, urlStr, clientID, userName, password)
     }
@@ -375,7 +385,8 @@ def subscribeToTopics()
     // target, we still want to know what it is.
     
     if (isTopicProvided(settings.brokerTopicPrefix)) {
-        subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "power"));
+        // subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "power"));
+        subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "power-state"));
         subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "brightness"));
         subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "white"));
         subscribeToTopic(constructTopic(settings.brokerTopicPrefix, "rgb"));
@@ -449,8 +460,30 @@ def processIncoming(topic, payload)
 {
     logDebug("Topic and payload incoming: '${topic}', '${payload}'")
     
+    /*
     if (topic.endsWith("/power")) {
         isOn = parseBool(payload);
+        sendEvent(name: "switch", value: isOn ? "on" : "off", isStateChange: true)
+        this.power = isOn
+    }
+    */
+    
+    // Power state is now separate from power request
+    // Power state has four states to allow for soft-fading of the light:
+    //   "on", "off", "turning-on", "turning-off".
+    // Any intermediary stage is technically on to some degree, so only
+    // "off" genuinely means off.
+    
+    
+    if (topic.endsWith("/power")) {
+        // This is just an immediate echo/ack of a power on/off request.
+        // But the actual state is received via a "power-state" sub-topic
+        // and can have one of four states to account for slow-fades on/off
+        // as well as more immediate on/off.
+    }
+    
+    else if (topic.endsWith("/power-state")) {
+        isOn = (payload != "off");
         sendEvent(name: "switch", value: isOn ? "on" : "off", isStateChange: true)
         this.power = isOn
     }
@@ -468,34 +501,82 @@ def processIncoming(topic, payload)
         this.kelvin = kelvin
     }
 
-    else if (topic.endsWith("/rgb")) {
+    else if (topic.endsWith("/rgb"))
+    {
         if (payload.startsWith('#')) {
             payload = payload.substring(1);   
         }
-        payload = "#" + payload.toUpperCase();
-        rgbTuple = hubitat.helper.ColorUtils.hexToRGB(payload)
-        logDebug("rgb tuple is ${rgbTuple}");        
-        hsvTuple = hubitat.helper.ColorUtils.rgbToHSV(rgbTuple)
-        logDebug("hsv value is ${hsvTuple}");        
-        // sendEvent(name: "RGB", value: rgb, isStateChange: true) 
-        sendEvent(name: "colorMode", value: "RGB", displayed:false)
-        sendEvent(name: "hue", value: hsvTuple[0], isStateChange: true) 
-        sendEvent(name: "saturation", value: hsvTuple[1], isStateChange: true)
-        // sendEvent(name: "level", value: hsvTuple[2], isStateChange: true) // The dimmer perspective.
-        this.rgb = rgb
+        
+        if (payload.contains(',')) 
+        {
+            handled = false
+            parts = payload.split(',')
+            
+            if (parts.length == 3)
+            {
+                partR = parts[0]
+                partG = parts[1]
+                partB = parts[2]
+                
+                if (partR.isInteger() && partG.isInteger() && partB.isInteger()) {
+                    r = partR.toInteger()
+                    g = partG.toInteger()
+                    b = partB.toInteger()
+                    rgbTuple = [r, g, b];
+                    handled = true
+                }
+            }
+        }
+        
+        else {
+            payload = "#" + payload.toUpperCase();
+            rgbTuple = hubitat.helper.ColorUtils.hexToRGB(payload)
+            handled = true
+        }
+        
+        if (handled) 
+        {
+            logDebug("rgb tuple is ${rgbTuple}");        
+        
+            hsvTuple = hubitat.helper.ColorUtils.rgbToHSV(rgbTuple)
+            logDebug("hsv value is ${hsvTuple}");        
+        
+            sendEvent(name: "RGB", value: rgbTuple, isStateChange: true) 
+            sendEvent(name: "colorMode", value: "RGB", displayed:false)
+            sendEvent(name: "hue", value: hsvTuple[0], isStateChange: true) 
+            sendEvent(name: "saturation", value: hsvTuple[1], isStateChange: true)
+        
+            // sendEvent(name: "level", value: hsvTuple[2], isStateChange: true) // The dimmer perspective.
+        
+            this.rgb = rgb
+        }
+        
+        else {
+            logWarn("Invalid rgb specifier '${payload}'");   
+        }
     }
     
-    else if (topic.endsWith("/preset")) {
+    else if (topic.endsWith("/preset")) 
+    {
         // Could be two parts.
         // First part is the preset number.
         // Second (optional) part is the preset name.
+        
         parts = payload.split(" ");
+        
         if (parts.length > 0) {
-            presetNo = Integer.parseInt(parts[0];
+            presetNo = Integer.parseInt(parts[0]);
             sendEvent(name: "effectName", value: payload, isStateChange: true);
             this.preset = preset;
+            handled = true;
         }
+                                        
+        else {
+            logError("For MQTT topic (topic ${topic}), payload '${payload} is missing preset number.'");
+        }
+                                            
     }
+
 
     /***
     else if (topic.endsWith("alert")) {
@@ -632,7 +713,7 @@ def setSaturation(sat) {
 
 def setEffect(presetNo) {
     logDebug("Performing setEffect(${presetNo})   - NOTE: NOT HANDLED YET!.")
-     publishSetPreset(presetNo); 
+    deviceSetPreset(presetNo); 
 }
 
 /***********************************************************************************
