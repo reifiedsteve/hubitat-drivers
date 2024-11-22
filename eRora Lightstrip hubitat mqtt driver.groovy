@@ -567,7 +567,7 @@ def processIncoming(topic, payload)
         if (parts.length > 0) {
             presetNo = Integer.parseInt(parts[0]);
             sendEvent(name: "effectName", value: presetNo, isStateChange: true);
-            this.preset = preset;
+            this.preset = presetNo;
             handled = true;
         }
                                         
@@ -712,7 +712,7 @@ def setSaturation(sat) {
  ***********************************************************************************/
 
 def setEffect(presetNo) {
-    logDebug("Performing setEffect(${presetNo})   - NOTE: NOT HANDLED YET!.")
+    logDebug("Performing setEffect(${presetNo}).")
     deviceSetPreset(presetNo); 
 }
 
