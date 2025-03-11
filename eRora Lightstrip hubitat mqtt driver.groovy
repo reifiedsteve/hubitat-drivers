@@ -202,18 +202,20 @@ def connect()
     
     try {
         state.connecting = true;
-        connectToBroker()
+        connectToBroker();
         boolean connected = interfaces.mqtt.isConnected() 
         logDebug("MQTT broker is ${connected ? 'connected' : 'disconnected'}")
+        state.connected = connected;
     }
     
     catch (Exception ex) {
         state.connecting = false;
+        state.connected = false;
         logError("Cannot connect: ${ex}")
     }
 
     if (settings.logEnable) {
-        logDebug("Finished connecting.")
+        logDebug("Finished attempt to connect.")
     }
 }
 
@@ -264,7 +266,8 @@ def mqttClientStatus(String message)
     }
 
     if (!interfaces.mqtt.isConnected() && !state.connecting) {
-         connect();   
+        connect();  
+        subscribeToTopics()
     }
 }
 
